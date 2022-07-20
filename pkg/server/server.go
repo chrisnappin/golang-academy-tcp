@@ -19,12 +19,12 @@ func StartServer(store *kvstore.KVStore, serverHostnamePort string, peerHostname
 	go startConnections("peer "+peerHostnamePort+" ", store, peerHostnamePort, nil)
 }
 
-func startConnections(description string, store *kvstore.KVStore, serverHostnamePort string, otherServers []string) {
+func startConnections(description string, store *kvstore.KVStore, hostnamePort string, otherServers []string) {
 	logger := log.New(os.Stdout, description, log.Ldate|log.Ltime|log.Lshortfile)
 
-	logger.Print("binding server to TCP client port")
+	logger.Print("binding server to TCP port ", hostnamePort)
 
-	clientListener, err := net.Listen("tcp4", serverHostnamePort)
+	clientListener, err := net.Listen("tcp4", hostnamePort)
 	if err != nil {
 		logger.Fatal("Unable to bind to port: ", err)
 	}
@@ -40,18 +40,22 @@ func startConnections(description string, store *kvstore.KVStore, serverHostname
 			break
 		}
 
-		// client commands are replicated to peers
-		go handle(logger, conn, store, otherServers)
+		go openConnectionsAndHandle(logger, conn, store, otherServers)
 	}
 }
 
-func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KVStore, otherServers []string) {
-	logger.Print("opened new client connection")
-
+func openConnectionsAndHandle(logger *log.Logger, clientConn io.ReadWriteCloser,
+	store *kvstore.KVStore, otherServers []string) {
 	serverConns, err := openServerConnections(logger, otherServers)
 	if err != nil {
 		return
 	}
+
+	handle(logger, clientConn, store, serverConns)
+}
+
+func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KVStore, serverConns []net.Conn) {
+	logger.Print("opened new client connection")
 
 	defer func() {
 		_ = clientConn.Close()

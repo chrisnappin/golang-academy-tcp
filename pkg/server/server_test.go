@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"io"
+	"io/ioutil"
+	"log"
 	"net"
 	"tcp/pkg/kvstore"
 	"testing"
@@ -21,11 +23,14 @@ const (
 		"est."
 )
 
+// to enable logging change ioutil.Discard to os.Stdout.
+var testLogger = log.New(ioutil.Discard, "Code under test: ", log.Ldate|log.Ltime|log.Lshortfile)
+
 func Test_handle_HappyPath(t *testing.T) {
 	server, client := net.Pipe()
 	store := kvstore.NewKVStore()
 
-	go handle(server, store, "[server] ", nil)
+	go handle(testLogger, server, store, nil)
 
 	checkRequestResponse(t, client, "get11a0", "nil")       // get key not present
 	checkRequestResponse(t, client, "put12bb13999", "ack")  // put key
@@ -39,7 +44,7 @@ func Test_handle_LargeEntry(t *testing.T) {
 	server, client := net.Pipe()
 	store := kvstore.NewKVStore()
 
-	go handle(server, store, "[server] ", nil)
+	go handle(testLogger, server, store, nil)
 
 	checkRequestResponse(t, client, "put226"+key+"3513"+value, "ack")  // put key
 	checkRequestResponse(t, client, "get226"+key+"0", "val3513"+value) // get key just written
@@ -52,7 +57,7 @@ func Test_handle_VariableLengthGet(t *testing.T) {
 	server, client := net.Pipe()
 	store := kvstore.NewKVStore()
 
-	go handle(server, store, "[server] ", nil)
+	go handle(testLogger, server, store, nil)
 
 	checkRequestResponse(t, client, "put11a2200123456789abcdefghij", "ack")    // put 20 chars value
 	checkRequestResponse(t, client, "get11a0", "val2200123456789abcdefghij")   // get whole value
@@ -66,7 +71,7 @@ func Test_handle_Errors(t *testing.T) {
 	server, client := net.Pipe()
 	store := kvstore.NewKVStore()
 
-	go handle(server, store, "[server] ", nil)
+	go handle(testLogger, server, store, nil)
 
 	// valid commands intermingled with invalid ones, to test the buffer being wiped
 	// and subsequent commands being successfully recognised

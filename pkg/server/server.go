@@ -6,23 +6,27 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"tcp/pkg/kvstore"
 )
 
 // StartServer starts the tcp key value store server.
 func StartServer(store *kvstore.KVStore, serverHostnamePort string, peerHostnamePort string, otherServers []string) {
-	go startClientConnections(store, serverHostnamePort, otherServers)
-	go startPeerConnections(store, peerHostnamePort)
+	// client commands are replicated to peers
+	go startConnections("server "+serverHostnamePort+" ", store, serverHostnamePort, otherServers)
+
+	// peer commands are not replicated any further
+	go startConnections("peer "+peerHostnamePort+" ", store, peerHostnamePort, nil)
 }
 
-func startClientConnections(store *kvstore.KVStore, serverHostnamePort string, otherServers []string) {
-	servername := "[server " + serverHostnamePort + "] "
+func startConnections(description string, store *kvstore.KVStore, serverHostnamePort string, otherServers []string) {
+	logger := log.New(os.Stdout, description, log.Ldate|log.Ltime|log.Lshortfile)
 
-	log.Print(servername, "binding server to TCP client port")
+	logger.Print("binding server to TCP client port")
 
 	clientListener, err := net.Listen("tcp4", serverHostnamePort)
 	if err != nil {
-		log.Fatal("Unable to bind to port: ", err)
+		logger.Fatal("Unable to bind to port: ", err)
 	}
 
 	defer func() {
@@ -37,40 +41,14 @@ func startClientConnections(store *kvstore.KVStore, serverHostnamePort string, o
 		}
 
 		// client commands are replicated to peers
-		go handle(conn, store, servername, otherServers)
+		go handle(logger, conn, store, otherServers)
 	}
 }
 
-func startPeerConnections(store *kvstore.KVStore, peerHostnamePort string) {
-	servername := "[server " + peerHostnamePort + "] "
+func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KVStore, otherServers []string) {
+	logger.Print("opened new client connection")
 
-	log.Print(servername, "binding server to TCP peer port")
-
-	peerListener, err := net.Listen("tcp4", peerHostnamePort)
-	if err != nil {
-		log.Fatal("Unable to bind to port: ", err)
-	}
-
-	defer func() {
-		_ = peerListener.Close()
-	}()
-
-	for {
-		conn, err := peerListener.Accept()
-
-		if err != nil {
-			break
-		}
-
-		// peer commands are not replicated any further
-		go handle(conn, store, servername, nil)
-	}
-}
-
-func handle(clientConn io.ReadWriteCloser, store *kvstore.KVStore, servername string, otherServers []string) {
-	log.Print(servername, "opened new client connection")
-
-	serverConns, err := openServerConnections(servername, otherServers)
+	serverConns, err := openServerConnections(logger, otherServers)
 	if err != nil {
 		return
 	}
@@ -91,7 +69,7 @@ func handle(clientConn io.ReadWriteCloser, store *kvstore.KVStore, servername st
 	for scanner.Scan() {
 		err := scanner.Err()
 		if err != nil {
-			log.Print("Read error: ", err)
+			logger.Print("Read error: ", err)
 		}
 
 		buffer += scanner.Text()
@@ -99,16 +77,16 @@ func handle(clientConn io.ReadWriteCloser, store *kvstore.KVStore, servername st
 		command, err := parseCommand(buffer)
 
 		if command != nil {
-			log.Print(servername, "found command: ", buffer)
+			logger.Print("found command: ", buffer)
 
-			response, exit := performCommand(servername, store, command, buffer, serverConns)
+			response, exit := performCommand(logger, store, command, buffer, serverConns)
 			if exit {
-				log.Print(servername, "closing connection")
+				logger.Print("closing connection")
 				return
 			}
 
 			if response != "" {
-				log.Print(servername, "writing response: ", response)
+				logger.Print("writing response: ", response)
 				writeResponse(clientConn, response)
 			}
 
@@ -130,15 +108,15 @@ func writeResponse(writer io.Writer, response string) {
 	}
 }
 
-func openServerConnections(servername string, otherServers []string) ([]net.Conn, error) {
+func openServerConnections(logger *log.Logger, otherServers []string) ([]net.Conn, error) {
 	serverConns := make([]net.Conn, 0, len(otherServers))
 
 	for _, otherServer := range otherServers {
-		log.Print(servername, "opening new server connection to ", otherServer)
+		logger.Print("opening new server connection to ", otherServer)
 
 		conn, err := net.Dial("tcp4", otherServer)
 		if err != nil {
-			log.Print(err)
+			logger.Print(err)
 
 			// close any previously successfully opened connections
 			for _, conn = range serverConns {
@@ -154,31 +132,32 @@ func openServerConnections(servername string, otherServers []string) ([]net.Conn
 	return serverConns, nil
 }
 
-func performCommand(servername string, store *kvstore.KVStore, request *commandRequest,
+func performCommand(logger *log.Logger, store *kvstore.KVStore, request *commandRequest,
 	command string, serverConns []net.Conn) (string, bool) {
 	// TODO: use fan out/fan in to do this in parallel, wait for acks then return local result
 
-	replicateCommand(servername, command, serverConns)
+	replicateCommand(logger, request, command, serverConns)
 	return performCommandLocally(store, request)
 }
 
-func replicateCommand(servername string, command string, serverConns []net.Conn) {
-	buffer := make([]byte, 1024)
+func replicateCommand(logger *log.Logger, request *commandRequest, command string, serverConns []net.Conn) {
+	// only replicate commands that change data
+	if request.command == putCommand || request.command == deleteCommand {
+		buffer := make([]byte, 3)
 
-	for _, serverConn := range serverConns {
-		log.Print(servername, "replicating command to peer: ", command)
-		writeResponse(serverConn, command)
+		for _, serverConn := range serverConns {
+			logger.Print("replicating command to peer: ", command)
+			writeResponse(serverConn, command)
 
-		if command != "bye" {
 			// block until read response, have to assume a single read will get it
 			num, err := serverConn.Read(buffer)
 			if err != nil {
-				log.Print(servername, "error reading peer reply: ", err)
+				logger.Print("error reading peer reply: ", err)
 				// continue, peer might recover?
 			}
 
 			response := string(buffer[:num])
-			log.Print(servername, "received peer reply: ", response)
+			logger.Print("received peer reply: ", response)
 		}
 	}
 }

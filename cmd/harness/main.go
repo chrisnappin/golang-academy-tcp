@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"tcp/pkg/kvstore"
 	"tcp/pkg/server"
 )
@@ -21,6 +22,10 @@ const (
 )
 
 func main() {
+	client1Logger := log.New(os.Stdout, "client1 ", log.Ldate|log.Ltime|log.Lshortfile)
+	client2Logger := log.New(os.Stdout, "client2 ", log.Ldate|log.Ltime|log.Lshortfile)
+	client3Logger := log.New(os.Stdout, "client3 ", log.Ldate|log.Ltime|log.Lshortfile)
+
 	log.Println("Starting test harness...")
 
 	// start 3 servers
@@ -29,9 +34,9 @@ func main() {
 	go server.StartServer(kvstore.NewKVStore(), server3, peer3, []string{peer1, peer2})
 
 	// create 3 clients
-	client1 := openClientConn(server1)
-	client2 := openClientConn(server2)
-	client3 := openClientConn(server3)
+	client1 := openClientConn(client1Logger, server1)
+	client2 := openClientConn(client2Logger, server2)
+	client3 := openClientConn(client3Logger, server3)
 
 	defer func() {
 		_ = client1.Close()
@@ -40,44 +45,44 @@ func main() {
 	}()
 
 	// send some test requests, check the responses
-	checkRequestResponse(client1, "get11a0", "nil") // get key not present
-	checkRequestResponse(client2, "get11a0", "nil") // get key not present
-	checkRequestResponse(client3, "get11a0", "nil") // get key not present
+	checkRequestResponse(client1Logger, client1, "get11a0", "nil") // get key not present
+	checkRequestResponse(client2Logger, client2, "get11a0", "nil") // get key not present
+	checkRequestResponse(client3Logger, client3, "get11a0", "nil") // get key not present
 
-	checkRequestResponse(client1, "put12bb13999", "ack")  // put key to server 1
-	checkRequestResponse(client1, "get12bb0", "val13999") // get key just written
-	checkRequestResponse(client2, "get12bb0", "val13999") // get replicated key
-	checkRequestResponse(client3, "get12bb0", "val13999") // get replicated key
+	checkRequestResponse(client1Logger, client1, "put12bb13999", "ack")  // put key to server 1
+	checkRequestResponse(client1Logger, client1, "get12bb0", "val13999") // get key just written
+	checkRequestResponse(client2Logger, client2, "get12bb0", "val13999") // get replicated key
+	checkRequestResponse(client3Logger, client3, "get12bb0", "val13999") // get replicated key
 
-	checkRequestResponse(client2, "del12bb", "ack")  // delete the key using server 2
-	checkRequestResponse(client2, "get12bb0", "nil") // get key, now not present
-	checkRequestResponse(client1, "get12bb0", "nil") // delete replicated
-	checkRequestResponse(client3, "get12bb0", "nil") // delete replicated
+	checkRequestResponse(client2Logger, client2, "del12bb", "ack")  // delete the key using server 2
+	checkRequestResponse(client2Logger, client2, "get12bb0", "nil") // get key, now not present
+	checkRequestResponse(client1Logger, client1, "get12bb0", "nil") // delete replicated
+	checkRequestResponse(client3Logger, client3, "get12bb0", "nil") // delete replicated
 
-	checkRequestResponse(client1, "bye", "") // shutdown
+	checkRequestResponse(client1Logger, client1, "bye", "") // shutdown
 
 	log.Println("Test harness completed, all passed!")
 }
 
-func openClientConn(hostnamePort string) net.Conn {
+func openClientConn(logger *log.Logger, hostnamePort string) net.Conn {
 	clientConn, err := net.Dial("tcp4", hostnamePort)
 	if err != nil {
-		log.Fatal("Unable to connect to server: ", err)
+		logger.Fatal("Unable to connect to server: ", err)
 	}
 
 	return clientConn
 }
 
-func checkRequestResponse(client net.Conn, request string, expectedResponse string) {
-	log.Print("[client] sent ", request)
+func checkRequestResponse(logger *log.Logger, client net.Conn, request string, expectedResponse string) {
+	logger.Print("sent ", request)
 
 	numWritten, err := client.Write([]byte(request))
 	if err != nil {
-		log.Fatal("Error writing request: ", err)
+		logger.Fatal("Error writing request: ", err)
 	}
 
 	if numWritten != len(request) {
-		log.Printf("Expecting to write %d characters, but only wrote %d", len(request), numWritten)
+		logger.Printf("Expecting to write %d characters, but only wrote %d", len(request), numWritten)
 	}
 
 	buffer := make([]byte, len(expectedResponse))
@@ -85,22 +90,22 @@ func checkRequestResponse(client net.Conn, request string, expectedResponse stri
 	numRead, err := client.Read(buffer)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			log.Print("Server closed connection")
+			logger.Print("Server closed connection")
 			return
 		}
 
-		log.Fatal("Error reading response: ", err)
+		logger.Fatal("Error reading response: ", err)
 	}
 
 	if numRead != len(expectedResponse) {
-		log.Printf("Expecting to read %d characters, but only read %d", len(expectedResponse), numRead)
+		logger.Printf("Expecting to read %d characters, but only read %d", len(expectedResponse), numRead)
 	}
 
 	actualResponse := string(buffer[:numRead])
 
-	log.Print("[client] received ", actualResponse)
+	logger.Print("received ", actualResponse)
 
 	if actualResponse != expectedResponse {
-		log.Printf("Expected response %s but got %s", expectedResponse, actualResponse)
+		logger.Printf("Expected response %s but got %s", expectedResponse, actualResponse)
 	}
 }

@@ -10,39 +10,82 @@ import (
 )
 
 // StartServer starts the tcp key value store server.
-func StartServer(store *kvstore.KVStore) {
-	listener, err := net.Listen("tcp4", "localhost:8000")
+func StartServer(store *kvstore.KVStore, serverHostnamePort string, peerHostnamePort string, otherServers []string) {
+	go startClientConnections(store, serverHostnamePort, otherServers)
+	go startPeerConnections(store, peerHostnamePort)
+}
+
+func startClientConnections(store *kvstore.KVStore, serverHostnamePort string, otherServers []string) {
+	servername := "[server " + serverHostnamePort + "] "
+
+	log.Print(servername, "binding server to TCP client port")
+
+	clientListener, err := net.Listen("tcp4", serverHostnamePort)
 	if err != nil {
-		panic(err)
+		log.Fatal("Unable to bind to port: ", err)
 	}
 
 	defer func() {
-		_ = listener.Close()
+		_ = clientListener.Close()
 	}()
 
 	for {
-		conn, err := listener.Accept()
+		conn, err := clientListener.Accept()
 
 		if err != nil {
 			break
 		}
 
-		// TODO: catch ctrl-C, shutdown
-
-		go handle(conn, store)
+		// client commands are replicated to peers
+		go handle(conn, store, servername, otherServers)
 	}
 }
 
-func handle(conn io.ReadWriteCloser, store *kvstore.KVStore) {
-	log.Print("opened new connection")
+func startPeerConnections(store *kvstore.KVStore, peerHostnamePort string) {
+	servername := "[server " + peerHostnamePort + "] "
+
+	log.Print(servername, "binding server to TCP peer port")
+
+	peerListener, err := net.Listen("tcp4", peerHostnamePort)
+	if err != nil {
+		log.Fatal("Unable to bind to port: ", err)
+	}
 
 	defer func() {
-		_ = conn.Close()
+		_ = peerListener.Close()
+	}()
+
+	for {
+		conn, err := peerListener.Accept()
+
+		if err != nil {
+			break
+		}
+
+		// peer commands are not replicated any further
+		go handle(conn, store, servername, nil)
+	}
+}
+
+func handle(clientConn io.ReadWriteCloser, store *kvstore.KVStore, servername string, otherServers []string) {
+	log.Print(servername, "opened new client connection")
+
+	serverConns, err := openServerConnections(servername, otherServers)
+	if err != nil {
+		return
+	}
+
+	defer func() {
+		_ = clientConn.Close()
+
+		for _, serverConn := range serverConns {
+			_ = serverConn.Close()
+		}
 	}()
 
 	var buffer string
 
-	scanner := bufio.NewScanner(conn)
+	scanner := bufio.NewScanner(clientConn)
 	scanner.Split(bufio.ScanBytes)
 
 	for scanner.Scan() {
@@ -56,23 +99,24 @@ func handle(conn io.ReadWriteCloser, store *kvstore.KVStore) {
 		command, err := parseCommand(buffer)
 
 		if command != nil {
-			log.Print("Found a command: ", buffer)
+			log.Print(servername, "found command: ", buffer)
 
-			response, exit := performCommand(store, command)
+			response, exit := performCommand(servername, store, command, buffer, serverConns)
 			if exit {
-				log.Print("Closing connection")
+				log.Print(servername, "closing connection")
 				return
 			}
 
 			if response != "" {
-				writeResponse(conn, response)
+				log.Print(servername, "writing response: ", response)
+				writeResponse(clientConn, response)
 			}
 
 			buffer = ""
 		}
 
 		if err != nil {
-			writeResponse(conn, "err")
+			writeResponse(clientConn, "err")
 
 			buffer = ""
 		}
@@ -80,15 +124,66 @@ func handle(conn io.ReadWriteCloser, store *kvstore.KVStore) {
 }
 
 func writeResponse(writer io.Writer, response string) {
-	log.Print("Writing response: ", response)
-
 	_, err := writer.Write([]byte(response))
 	if err != nil {
 		log.Print("Error writing response: ", err)
 	}
 }
 
-func performCommand(store *kvstore.KVStore, request *commandRequest) (string, bool) {
+func openServerConnections(servername string, otherServers []string) ([]net.Conn, error) {
+	serverConns := make([]net.Conn, 0, len(otherServers))
+
+	for _, otherServer := range otherServers {
+		log.Print(servername, "opening new server connection to ", otherServer)
+
+		conn, err := net.Dial("tcp4", otherServer)
+		if err != nil {
+			log.Print(err)
+
+			// close any previously successfully opened connections
+			for _, conn = range serverConns {
+				_ = conn.Close()
+			}
+
+			return nil, err
+		}
+
+		serverConns = append(serverConns, conn)
+	}
+
+	return serverConns, nil
+}
+
+func performCommand(servername string, store *kvstore.KVStore, request *commandRequest,
+	command string, serverConns []net.Conn) (string, bool) {
+	// TODO: use fan out/fan in to do this in parallel, wait for acks then return local result
+
+	replicateCommand(servername, command, serverConns)
+	return performCommandLocally(store, request)
+}
+
+func replicateCommand(servername string, command string, serverConns []net.Conn) {
+	buffer := make([]byte, 1024)
+
+	for _, serverConn := range serverConns {
+		log.Print(servername, "replicating command to peer: ", command)
+		writeResponse(serverConn, command)
+
+		if command != "bye" {
+			// block until read response, have to assume a single read will get it
+			num, err := serverConn.Read(buffer)
+			if err != nil {
+				log.Print(servername, "error reading peer reply: ", err)
+				// continue, peer might recover?
+			}
+
+			response := string(buffer[:num])
+			log.Print(servername, "received peer reply: ", response)
+		}
+	}
+}
+
+func performCommandLocally(store *kvstore.KVStore, request *commandRequest) (string, bool) {
 	switch request.command {
 	case putCommand:
 		kvstore.Write(store, request.key, request.value)

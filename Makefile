@@ -9,6 +9,7 @@ clean:
 
 build:
 	go build ./cmd/server
+	go build ./cmd/harness
 
 vet:
 	go vet ./...

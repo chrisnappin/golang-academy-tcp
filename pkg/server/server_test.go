@@ -27,12 +27,12 @@ func Test_handle_HappyPath(t *testing.T) {
 
 	go handle(server, store)
 
-	checkRequestResponse(t, client, "get11a", "nil")       // get key not present
-	checkRequestResponse(t, client, "put12bb13999", "ack") // put key
-	checkRequestResponse(t, client, "get12bb", "val13999") // get key just written
-	checkRequestResponse(t, client, "del12bb", "ack")      // delete the key
-	checkRequestResponse(t, client, "get12bb", "nil")      // get key, now not present
-	checkRequestResponse(t, client, "bye", "")             // shutdown
+	checkRequestResponse(t, client, "get11a0", "nil")       // get key not present
+	checkRequestResponse(t, client, "put12bb13999", "ack")  // put key
+	checkRequestResponse(t, client, "get12bb0", "val13999") // get key just written
+	checkRequestResponse(t, client, "del12bb", "ack")       // delete the key
+	checkRequestResponse(t, client, "get12bb0", "nil")      // get key, now not present
+	checkRequestResponse(t, client, "bye", "")              // shutdown
 }
 
 func Test_handle_LargeEntry(t *testing.T) {
@@ -41,11 +41,25 @@ func Test_handle_LargeEntry(t *testing.T) {
 
 	go handle(server, store)
 
-	checkRequestResponse(t, client, "put226"+key+"3513"+value, "ack") // put key
-	checkRequestResponse(t, client, "get226"+key, "val3513"+value)    // get key just written
-	checkRequestResponse(t, client, "del226"+key, "ack")              // delete the key
-	checkRequestResponse(t, client, "get226"+key, "nil")              // get key, now not present
-	checkRequestResponse(t, client, "bye", "")                        // shutdown
+	checkRequestResponse(t, client, "put226"+key+"3513"+value, "ack")  // put key
+	checkRequestResponse(t, client, "get226"+key+"0", "val3513"+value) // get key just written
+	checkRequestResponse(t, client, "del226"+key, "ack")               // delete the key
+	checkRequestResponse(t, client, "get226"+key+"0", "nil")           // get key, now not present
+	checkRequestResponse(t, client, "bye", "")                         // shutdown
+}
+
+func Test_handle_VariableLengthGet(t *testing.T) {
+	server, client := net.Pipe()
+	store := kvstore.NewKVStore()
+
+	go handle(server, store)
+
+	checkRequestResponse(t, client, "put11a2200123456789abcdefghij", "ack")    // put 20 chars value
+	checkRequestResponse(t, client, "get11a0", "val2200123456789abcdefghij")   // get whole value
+	checkRequestResponse(t, client, "get11a15", "val1501234")                  // get first 5 chars
+	checkRequestResponse(t, client, "get11a215", "val2150123456789abcde")      // get first 15 chars
+	checkRequestResponse(t, client, "get11a230", "val2200123456789abcdefghij") // get > 20 chars, returns whole value
+	checkRequestResponse(t, client, "bye", "")                                 // shutdown
 }
 
 func Test_handle_Errors(t *testing.T) {
@@ -56,13 +70,13 @@ func Test_handle_Errors(t *testing.T) {
 
 	// valid commands intermingled with invalid ones, to test the buffer being wiped
 	// and subsequent commands being successfully recognised
-	checkRequestResponse(t, client, "get11a", "nil")       // valid - get key not present
+	checkRequestResponse(t, client, "get11a0", "nil")      // valid - get key not present
 	checkRequestResponse(t, client, "get1xd", "err")       // invalid - get
 	checkRequestResponse(t, client, "put12bb13999", "ack") // valid - put key
 	checkRequestResponse(t, client, "put11a1xa", "err")    // invalid - put
 	checkRequestResponse(t, client, "del12bb", "ack")      // valid - delete
 	checkRequestResponse(t, client, "delx1b", "err")       // invalid - delete
-	checkRequestResponse(t, client, "get11a", "nil")       // valid - get key not present
+	checkRequestResponse(t, client, "get11a0", "nil")      // valid - get key not present
 	checkRequestResponse(t, client, "abc", "err")          // invalid - no such command
 	checkRequestResponse(t, client, "bye", "")             // shutdown
 }

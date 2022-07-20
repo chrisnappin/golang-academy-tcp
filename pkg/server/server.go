@@ -100,7 +100,13 @@ func performCommand(store *kvstore.KVStore, request *commandRequest) (string, bo
 			return "nil", false
 		}
 
-		return "val" + formatArgument(value), false
+		if request.length == 0 || request.length > len(value) {
+			// return the whole value
+			return "val" + formatArgument(value), false
+		}
+
+		// return part of the value
+		return "val" + formatArgument(value[:request.length]), false
 
 	case deleteCommand:
 		kvstore.Delete(store, request.key)

@@ -14,25 +14,31 @@ func Test_parseCommandBuffer_Empty(t *testing.T) {
 func Test_parseCommandBuffer_Put(t *testing.T) {
 	command, err := parseCommand("put11a13foo")
 
-	checkParseCommand(t, &commandRequest{putCommand, "a", "foo"}, command, false, err)
+	checkParseCommand(t, &commandRequest{putCommand, "a", "foo", 0}, command, false, err)
 }
 
-func Test_parseCommandBuffer_Get(t *testing.T) {
-	command, err := parseCommand("get11b")
+func Test_parseCommandBuffer_GetAll(t *testing.T) {
+	command, err := parseCommand("get11b0")
 
-	checkParseCommand(t, &commandRequest{getCommand, "b", ""}, command, false, err)
+	checkParseCommand(t, &commandRequest{getCommand, "b", "", 0}, command, false, err)
+}
+
+func Test_parseCommandBuffer_GetSome(t *testing.T) {
+	command, err := parseCommand("get11b3123")
+
+	checkParseCommand(t, &commandRequest{getCommand, "b", "", 123}, command, false, err)
 }
 
 func Test_parseCommandBuffer_Delete(t *testing.T) {
 	command, err := parseCommand("del11aww")
 
-	checkParseCommand(t, &commandRequest{deleteCommand, "a", ""}, command, false, err)
+	checkParseCommand(t, &commandRequest{deleteCommand, "a", "", 0}, command, false, err)
 }
 
 func Test_parseCommandBuffer_Close(t *testing.T) {
 	command, err := parseCommand("bye")
 
-	checkParseCommand(t, &commandRequest{closeCommand, "", ""}, command, false, err)
+	checkParseCommand(t, &commandRequest{closeCommand, "", "", 0}, command, false, err)
 }
 
 func Test_parseCommandBuffer_IncompletePut(t *testing.T) {
@@ -41,8 +47,20 @@ func Test_parseCommandBuffer_IncompletePut(t *testing.T) {
 	checkParseCommand(t, nil, command, false, err)
 }
 
-func Test_parseCommandBuffer_IncompleteGet(t *testing.T) {
+func Test_parseCommandBuffer_IncompleteGetKey(t *testing.T) {
 	command, err := parseCommand("get12a")
+
+	checkParseCommand(t, nil, command, false, err)
+}
+
+func Test_parseCommandBuffer_IncompleteGetLengthSize(t *testing.T) {
+	command, err := parseCommand("get12aa")
+
+	checkParseCommand(t, nil, command, false, err)
+}
+
+func Test_parseCommandBuffer_IncompleteGetLength(t *testing.T) {
+	command, err := parseCommand("get12aa21")
 
 	checkParseCommand(t, nil, command, false, err)
 }
@@ -59,8 +77,20 @@ func Test_parseCommandBuffer_ErrorPut(t *testing.T) {
 	checkParseCommand(t, nil, command, true, err)
 }
 
-func Test_parseCommandBuffer_ErrorGet(t *testing.T) {
+func Test_parseCommandBuffer_ErrorGetInvalidKey(t *testing.T) {
 	command, err := parseCommand("get1yABC")
+
+	checkParseCommand(t, nil, command, true, err)
+}
+
+func Test_parseCommandBuffer_ErrorGetInvalidVariablelengthSize(t *testing.T) {
+	command, err := parseCommand("get13ABCx")
+
+	checkParseCommand(t, nil, command, true, err)
+}
+
+func Test_parseCommandBuffer_ErrorGetInvalidVariablelength(t *testing.T) {
+	command, err := parseCommand("get13ABC2aa")
 
 	checkParseCommand(t, nil, command, true, err)
 }

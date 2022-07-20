@@ -20,6 +20,7 @@ type commandRequest struct {
 	command command
 	key     string
 	value   string
+	length  int
 }
 
 var errUnrecognisedCommand = errors.New("unrecognised command")
@@ -45,7 +46,7 @@ func parseCommand(buffer string) (*commandRequest, error) {
 		command, incomplete, err = parseDeleteCommand(buffer)
 
 	case strings.HasPrefix(buffer, "bye"):
-		command = &commandRequest{closeCommand, "", ""}
+		command = &commandRequest{closeCommand, "", "", 0}
 
 	default:
 		if len(buffer) > 2 {
@@ -91,11 +92,11 @@ func parsePutCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, true, nil
 	}
 
-	return &commandRequest{putCommand, argument1, argument2}, false, nil
+	return &commandRequest{putCommand, argument1, argument2, 0}, false, nil
 }
 
 func parseGetCommand(buffer string) (*commandRequest, bool, error) {
-	argument1, _, incomplete, err := parseArgument(buffer[3:])
+	argument1, remaining, incomplete, err := parseArgument(buffer[3:])
 	if incomplete {
 		return nil, true, nil
 	}
@@ -105,7 +106,37 @@ func parseGetCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, false, err
 	}
 
-	return &commandRequest{getCommand, argument1, ""}, false, nil
+	if len(remaining) < 1 {
+		// string too short for variable length size character to be present
+		return nil, true, nil
+	}
+
+	variableLengthSizeStr := remaining[0:1]
+
+	variableLengthSize, err := strconv.Atoi(variableLengthSizeStr)
+	if err != nil {
+		log.Printf("Invalid variable length size: %s", variableLengthSizeStr)
+		return nil, false, err
+	}
+
+	if variableLengthSize == 0 {
+		return &commandRequest{getCommand, argument1, "", 0}, false, nil
+	}
+
+	if len(remaining) < variableLengthSize+1 {
+		// string too short for all of variable length argument to be present
+		return nil, true, nil
+	}
+
+	variableLengthStr := remaining[1 : variableLengthSize+1]
+
+	variableLength, err := strconv.Atoi(variableLengthStr)
+	if err != nil {
+		log.Printf("Invalid variable length: %s", variableLengthStr)
+		return nil, false, err
+	}
+
+	return &commandRequest{getCommand, argument1, "", variableLength}, false, nil
 }
 
 func parseDeleteCommand(buffer string) (*commandRequest, bool, error) {
@@ -119,7 +150,7 @@ func parseDeleteCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, true, nil
 	}
 
-	return &commandRequest{deleteCommand, argument1, ""}, false, nil
+	return &commandRequest{deleteCommand, argument1, "", 0}, false, nil
 }
 
 // parseArgument parses the specified string, looking for a valid 3 part argument.

@@ -2,11 +2,19 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"tcp/pkg/kvstore"
 	"time"
+)
+
+const (
+	commandTimeout = 500 * time.Millisecond
+	closeRequest   = "bye"
+	ackResponse    = "ack"
+	errorResponse  = "err"
 )
 
 func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KVStore, serverConns []net.Conn) {
@@ -39,7 +47,7 @@ func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KV
 			logger.Print("found command: ", buffer)
 
 			response := performCommand(logger, localStoreChannel, responseChannel, peerChannels, ackChannel, command)
-			if response == "bye" {
+			if response == closeRequest {
 				logger.Print("closing connection")
 				return
 			}
@@ -53,7 +61,7 @@ func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KV
 		}
 
 		if err != nil {
-			_ = reliableWrite(clientConn, "err")
+			_ = reliableWrite(clientConn, errorResponse)
 
 			buffer = ""
 		}
@@ -66,7 +74,7 @@ func reliableWrite(writer io.Writer, message string) error {
 	for {
 		numWritten, err := writer.Write([]byte(message[start:]))
 		if err != nil {
-			return err
+			return fmt.Errorf("error writing message: %w", err)
 		}
 
 		if numWritten+start < len(message) {
@@ -93,7 +101,7 @@ func reliableRead(reader io.Reader, expected int) (string, error) {
 		}
 
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("error reading message: %w", err)
 		}
 	}
 }
@@ -113,7 +121,7 @@ func openServerConnections(logger *log.Logger, otherServers []string) ([]net.Con
 				_ = conn.Close()
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("error connecting to peer: %w", err)
 		}
 
 		serverConns = append(serverConns, conn)
@@ -146,11 +154,11 @@ func performCommand(logger *log.Logger, localStoreChannel chan<- *commandRequest
 		case r := <-responseChannel:
 			response = r
 
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(commandTimeout):
 			logger.Printf("command timed out, received response: %t, received %d acks", response != "", numAcks)
 
 			if response == "" {
-				return "err"
+				return errorResponse
 			}
 
 			return response
@@ -187,7 +195,7 @@ func initialiseReplicationHandler(logger *log.Logger, serverConns []net.Conn) (
 					logger.Print("received peer reply: ", response)
 				}
 
-				ackChannel <- "ack"
+				ackChannel <- ackResponse
 
 				if request.command == closeCommand {
 					// exit this go routine
@@ -215,40 +223,27 @@ func initialiseLocalStoreHandler(logger *log.Logger, store *kvstore.KVStore) (ch
 			case putCommand:
 				kvstore.Write(store, request.key, request.value)
 
-				response = "ack"
+				response = ackResponse
 
 			case getCommand:
-				value, present := kvstore.Read(store, request.key)
-
-				switch {
-				case !present:
-					response = "nil"
-
-				case request.length == 0 || request.length > len(value):
-					// return the whole value
-					response = "val" + formatArgument(value)
-
-				default:
-					// return part of the value
-					response = "val" + formatArgument(value[:request.length])
-				}
+				response = handleVariableLengthGet(store, *request)
 
 			case deleteCommand:
 				kvstore.Delete(store, request.key)
 
-				response = "ack"
+				response = ackResponse
 
 			case closeCommand:
 				kvstore.Close(store)
 
-				response = "bye"
+				response = closeRequest
 
 			default:
 				// unknown command
-				response = "err"
+				response = errorResponse
 			}
 
-			logger.Printf("lcoal store - sending response %s", response)
+			logger.Printf("local store - sending response %s", response)
 			responseChannel <- response
 
 			if request.command == closeCommand {
@@ -259,4 +254,21 @@ func initialiseLocalStoreHandler(logger *log.Logger, store *kvstore.KVStore) (ch
 	}()
 
 	return localStoreChannel, responseChannel
+}
+
+func handleVariableLengthGet(store *kvstore.KVStore, request commandRequest) string {
+	value, present := kvstore.Read(store, request.key)
+
+	switch {
+	case !present:
+		return "nil"
+
+	case request.length == 0 || request.length > len(value):
+		// return the whole value
+		return "val" + formatArgument(value)
+
+	default:
+		// return part of the value
+		return "val" + formatArgument(value[:request.length])
+	}
 }

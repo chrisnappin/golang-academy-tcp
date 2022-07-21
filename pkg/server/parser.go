@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -117,7 +118,7 @@ func parseGetCommand(buffer string) (*commandRequest, bool, error) {
 	variableLengthSize, err := strconv.Atoi(variableLengthSizeStr)
 	if err != nil {
 		log.Printf("Invalid variable length size: %s", variableLengthSizeStr)
-		return nil, false, err
+		return nil, false, fmt.Errorf("error parsing number: %w", err)
 	}
 
 	if variableLengthSize == 0 {
@@ -134,7 +135,7 @@ func parseGetCommand(buffer string) (*commandRequest, bool, error) {
 	variableLength, err := strconv.Atoi(variableLengthStr)
 	if err != nil {
 		log.Printf("Invalid variable length: %s", variableLengthStr)
-		return nil, false, err
+		return nil, false, fmt.Errorf("error parsing number: %w", err)
 	}
 
 	return &commandRequest{getCommand, argument1, "", variableLength, buffer}, false, nil
@@ -173,7 +174,7 @@ func parseArgument(buffer string) (string, string, bool, error) {
 	argumentSizeLength, err := strconv.Atoi(part1String)
 	if err != nil {
 		log.Printf("Invalid part 1 of command argument: %s", part1String)
-		return "", buffer, false, err
+		return "", buffer, false, fmt.Errorf("error parsing number: %w", err)
 	}
 
 	if len(buffer) < argumentSizeLength+1 {
@@ -186,7 +187,7 @@ func parseArgument(buffer string) (string, string, bool, error) {
 	argumentSize, err := strconv.Atoi(part2String)
 	if err != nil {
 		log.Printf("Invalid part 2 of command argument: %s", part2String)
-		return "", buffer, false, err
+		return "", buffer, false, fmt.Errorf("error parsing number: %w", err)
 	}
 
 	if len(buffer) < argumentSize+argumentSizeLength+1 {

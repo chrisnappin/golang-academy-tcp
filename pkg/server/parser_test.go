@@ -12,33 +12,38 @@ func Test_parseCommandBuffer_Empty(t *testing.T) {
 }
 
 func Test_parseCommandBuffer_Put(t *testing.T) {
-	command, err := parseCommand("put11a13foo")
+	text := "put11a13foo"
+	command, err := parseCommand(text)
 
-	checkParseCommand(t, &commandRequest{putCommand, "a", "foo", 0}, command, false, err)
+	checkParseCommand(t, &commandRequest{putCommand, "a", "foo", 0, text}, command, false, err)
 }
 
 func Test_parseCommandBuffer_GetAll(t *testing.T) {
-	command, err := parseCommand("get11b0")
+	text := "get11b0"
+	command, err := parseCommand(text)
 
-	checkParseCommand(t, &commandRequest{getCommand, "b", "", 0}, command, false, err)
+	checkParseCommand(t, &commandRequest{getCommand, "b", "", 0, text}, command, false, err)
 }
 
 func Test_parseCommandBuffer_GetSome(t *testing.T) {
-	command, err := parseCommand("get11b3123")
+	text := "get11b3123"
+	command, err := parseCommand(text)
 
-	checkParseCommand(t, &commandRequest{getCommand, "b", "", 123}, command, false, err)
+	checkParseCommand(t, &commandRequest{getCommand, "b", "", 123, text}, command, false, err)
 }
 
 func Test_parseCommandBuffer_Delete(t *testing.T) {
-	command, err := parseCommand("del11aww")
+	text := "del11aww"
+	command, err := parseCommand(text)
 
-	checkParseCommand(t, &commandRequest{deleteCommand, "a", "", 0}, command, false, err)
+	checkParseCommand(t, &commandRequest{deleteCommand, "a", "", 0, text}, command, false, err)
 }
 
 func Test_parseCommandBuffer_Close(t *testing.T) {
-	command, err := parseCommand("bye")
+	text := "bye"
+	command, err := parseCommand(text)
 
-	checkParseCommand(t, &commandRequest{closeCommand, "", "", 0}, command, false, err)
+	checkParseCommand(t, &commandRequest{closeCommand, "", "", 0, text}, command, false, err)
 }
 
 func Test_parseCommandBuffer_IncompletePut(t *testing.T) {

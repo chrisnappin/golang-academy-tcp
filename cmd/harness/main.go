@@ -8,6 +8,7 @@ import (
 	"os"
 	"tcp/pkg/kvstore"
 	"tcp/pkg/server"
+	"time"
 )
 
 const (
@@ -32,6 +33,9 @@ func main() {
 	go server.StartServer(kvstore.NewKVStore(), server1, peer1, []string{peer2, peer3})
 	go server.StartServer(kvstore.NewKVStore(), server2, peer2, []string{peer1, peer3})
 	go server.StartServer(kvstore.NewKVStore(), server3, peer3, []string{peer1, peer2})
+
+	// wait for servers to start up
+	time.Sleep(200 * time.Millisecond)
 
 	// create 3 clients
 	client1 := openClientConn(client1Logger, server1)

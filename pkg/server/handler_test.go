@@ -86,23 +86,73 @@ func Test_handle_Errors(t *testing.T) {
 	checkRequestResponse(t, client, "bye", "")             // shutdown
 }
 
+func Test_handle_Distributed(t *testing.T) {
+	server1, client := net.Pipe()
+	server2, peer2 := net.Pipe()
+	server3, peer3 := net.Pipe()
+	store := kvstore.NewKVStore()
+
+	peers := []net.Conn{server2, server3}
+
+	go handle(testLogger, server1, store, []net.Conn{peer2, peer3})
+
+	checkDistributedRequestResponse(t, client, "put12bb13999", peers, "ack") // put is distributed
+	checkRequestResponse(t, client, "get12bb0", "val13999")                  // get is not distributed
+	checkDistributedRequestResponse(t, client, "del12bb", peers, "ack")      // delete is distributed
+	checkRequestResponse(t, client, "bye", "")                               // bye is not distributed
+}
+
 func checkRequestResponse(t *testing.T, client net.Conn, request string, expectedResponse string) {
 	t.Helper()
 
-	numWritten, err := client.Write([]byte(request))
+	// write the request
+	write(t, client, request)
+
+	// read the response
+	read(t, client, expectedResponse)
+}
+
+func checkDistributedRequestResponse(t *testing.T, client net.Conn, request string,
+	peers []net.Conn, expectedResponse string) {
+	t.Helper()
+
+	// write the request
+	write(t, client, request)
+
+	// for each peer
+	for _, peer := range peers {
+		// read the replicated request
+		read(t, peer, request)
+
+		// write the response
+		write(t, peer, "ack")
+	}
+
+	// read the response
+	read(t, client, expectedResponse)
+}
+
+func write(t *testing.T, conn net.Conn, message string) {
+	t.Helper()
+
+	numWritten, err := conn.Write([]byte(message))
 	if err != nil {
-		t.Error("Error writing request: ", err)
+		t.Error("Error writing: ", err)
 	}
 
-	if numWritten != len(request) {
-		t.Errorf("Expecting to write %d characters, but only wrote %d", len(request), numWritten)
+	if numWritten != len(message) {
+		t.Errorf("Expecting to write %d characters, but only wrote %d", len(message), numWritten)
 	}
+}
 
-	buffer := make([]byte, len(expectedResponse))
+func read(t *testing.T, conn net.Conn, expectedMessage string) {
+	t.Helper()
 
-	if expectedResponse == "" {
+	buffer := make([]byte, len(expectedMessage))
+
+	if expectedMessage == "" {
 		// client disconnected, check the connection was shut by the server
-		_, err = client.Read(buffer)
+		_, err := conn.Read(buffer)
 		if !errors.Is(err, io.EOF) {
 			t.Error("Wrong error returned: ", err)
 		}
@@ -110,17 +160,17 @@ func checkRequestResponse(t *testing.T, client net.Conn, request string, expecte
 		return
 	}
 
-	numRead, err := client.Read(buffer)
+	numRead, err := conn.Read(buffer)
 	if err != nil {
 		t.Error("Error reading response: ", err)
 	}
 
-	if numRead != len(expectedResponse) {
-		t.Errorf("Expecting to read %d characters, but only read %d", len(expectedResponse), numRead)
+	if numRead != len(expectedMessage) {
+		t.Errorf("Expecting to read %d characters, but only read %d", len(expectedMessage), numRead)
 	}
 
-	actualResponse := string(buffer[:numRead])
-	if actualResponse != expectedResponse {
-		t.Errorf("Expected response %s but got %s", expectedResponse, actualResponse)
+	actualMessage := string(buffer[:numRead])
+	if actualMessage != expectedMessage {
+		t.Errorf("Expected %s but got %s", expectedMessage, actualMessage)
 	}
 }

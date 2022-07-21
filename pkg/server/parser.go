@@ -17,10 +17,11 @@ const (
 )
 
 type commandRequest struct {
-	command command
-	key     string
-	value   string
-	length  int
+	command      command
+	key          string
+	value        string
+	length       int
+	originalText string
 }
 
 var errUnrecognisedCommand = errors.New("unrecognised command")
@@ -46,7 +47,7 @@ func parseCommand(buffer string) (*commandRequest, error) {
 		command, incomplete, err = parseDeleteCommand(buffer)
 
 	case strings.HasPrefix(buffer, "bye"):
-		command = &commandRequest{closeCommand, "", "", 0}
+		command = &commandRequest{closeCommand, "", "", 0, buffer}
 
 	default:
 		if len(buffer) > 2 {
@@ -92,7 +93,7 @@ func parsePutCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, true, nil
 	}
 
-	return &commandRequest{putCommand, argument1, argument2, 0}, false, nil
+	return &commandRequest{putCommand, argument1, argument2, 0, buffer}, false, nil
 }
 
 func parseGetCommand(buffer string) (*commandRequest, bool, error) {
@@ -120,7 +121,7 @@ func parseGetCommand(buffer string) (*commandRequest, bool, error) {
 	}
 
 	if variableLengthSize == 0 {
-		return &commandRequest{getCommand, argument1, "", 0}, false, nil
+		return &commandRequest{getCommand, argument1, "", 0, buffer}, false, nil
 	}
 
 	if len(remaining) < variableLengthSize+1 {
@@ -136,7 +137,7 @@ func parseGetCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, false, err
 	}
 
-	return &commandRequest{getCommand, argument1, "", variableLength}, false, nil
+	return &commandRequest{getCommand, argument1, "", variableLength, buffer}, false, nil
 }
 
 func parseDeleteCommand(buffer string) (*commandRequest, bool, error) {
@@ -150,7 +151,7 @@ func parseDeleteCommand(buffer string) (*commandRequest, bool, error) {
 		return nil, true, nil
 	}
 
-	return &commandRequest{deleteCommand, argument1, "", 0}, false, nil
+	return &commandRequest{deleteCommand, argument1, "", 0, buffer}, false, nil
 }
 
 // parseArgument parses the specified string, looking for a valid 3 part argument.

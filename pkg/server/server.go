@@ -11,11 +11,11 @@ import (
 
 // StartServer starts the tcp key value store server.
 func StartServer(store *kvstore.KVStore, serverHostnamePort string, peerHostnamePort string, otherServers []string) {
-	// client commands are replicated to peers
-	go startConnections("server "+serverHostnamePort+" ", store, serverHostnamePort, otherServers)
-
-	// peer commands are not replicated any further
+	// async - peer commands are not replicated any further
 	go startConnections("peer "+peerHostnamePort+" ", store, peerHostnamePort, nil)
+
+	// sync - client commands are replicated to peers
+	startConnections("server "+serverHostnamePort+" ", store, serverHostnamePort, otherServers)
 }
 
 func startConnections(description string, store *kvstore.KVStore, hostnamePort string, otherServers []string) {
@@ -34,7 +34,6 @@ func startConnections(description string, store *kvstore.KVStore, hostnamePort s
 
 	for {
 		conn, err := clientListener.Accept()
-
 		if err != nil {
 			break
 		}

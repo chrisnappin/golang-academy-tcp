@@ -20,6 +20,8 @@ func main() {
 	otherServers := flag.String("others", "",
 		"Comma-separated list of other server hostnames and ports to replicate with")
 
+	flag.Parse()
+
 	store := kvstore.NewKVStore()
 	server.StartServer(store, *serverHostnamePort, *peerHostnamePort, strings.Split(*otherServers, ","))
 

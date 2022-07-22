@@ -2,6 +2,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -36,6 +37,11 @@ func handle(logger *log.Logger, clientConn io.ReadWriteCloser, store *kvstore.KV
 	for {
 		input, err := reliableRead(clientConn, 1)
 		if err != nil {
+			if errors.Is(io.EOF, errors.Unwrap(err)) {
+				logger.Print("TCP connection closed")
+				return
+			}
+
 			logger.Print("Read error: ", err)
 		}
 
@@ -234,8 +240,7 @@ func initialiseLocalStoreHandler(logger *log.Logger, store *kvstore.KVStore) (ch
 				response = ackResponse
 
 			case closeCommand:
-				kvstore.Close(store)
-
+				// keep store open for other connections
 				response = closeRequest
 
 			default:

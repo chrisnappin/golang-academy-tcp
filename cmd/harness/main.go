@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"io"
 	"log"
 	"net"
@@ -20,6 +21,8 @@ const (
 
 	server3 = "localhost:8004"
 	peer3   = "localhost:8005"
+
+	serverStartupDelay = 200 * time.Millisecond
 )
 
 func main() {
@@ -29,13 +32,19 @@ func main() {
 
 	log.Println("Starting test harness...")
 
-	// start 3 servers
-	go server.StartServer(kvstore.NewKVStore(), server1, peer1, []string{peer2, peer3})
-	go server.StartServer(kvstore.NewKVStore(), server2, peer2, []string{peer1, peer3})
-	go server.StartServer(kvstore.NewKVStore(), server3, peer3, []string{peer1, peer2})
+	startServers := flag.String("startServers", "n", "whether to start the servers directly")
 
-	// wait for servers to start up
-	time.Sleep(200 * time.Millisecond)
+	flag.Parse()
+
+	if *startServers == "y" {
+		// start 3 servers
+		go server.StartServer(kvstore.NewKVStore(), server1, peer1, []string{peer2, peer3})
+		go server.StartServer(kvstore.NewKVStore(), server2, peer2, []string{peer1, peer3})
+		go server.StartServer(kvstore.NewKVStore(), server3, peer3, []string{peer1, peer2})
+
+		// wait for servers to start up
+		time.Sleep(serverStartupDelay)
+	}
 
 	// create 3 clients
 	client1 := openClientConn(client1Logger, server1)
